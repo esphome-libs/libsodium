@@ -1,0 +1,145 @@
+diff --git a/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna32.h b/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna32.h
+index ed525008..be6b0218 100644
+--- a/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna32.h
++++ b/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna32.h
+@@ -1,6 +1,10 @@
+ /*
+    poly1305 implementation using 32 bit * 32 bit = 64 bit multiplication
+    and 64 bit addition
++
++   When the message pointer is 4-byte aligned, uses 4 aligned 32-bit loads
++   per block instead of 5 unaligned byte-at-a-time loads. This benefits
++   architectures (like Xtensa) where unaligned loads are expensive.
+ */
+ 
+ #if defined(_MSC_VER)
+@@ -12,6 +16,7 @@
+ #endif
+ 
+ #include "private/common.h"
++#include <stdint.h>
+ 
+ #define poly1305_block_size 16
+ 
+@@ -25,15 +30,56 @@ typedef struct poly1305_state_internal_t {
+     unsigned char      final;
+ } poly1305_state_internal_t;
+ 
++/* Load a 32-bit little-endian value from a pointer that is known to be
++   4-byte aligned. On little-endian targets this compiles to a single
++   aligned load instruction (e.g. l32i on Xtensa). */
++static inline __attribute__((always_inline)) uint32_t
++load32_le_aligned(const void *p) {
++#if (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
++    return *(const uint32_t *)p;
++#else
++    const uint8_t *b = (const uint8_t *)p;
++    return ((uint32_t)b[0])
++         | ((uint32_t)b[1] << 8)
++         | ((uint32_t)b[2] << 16)
++         | ((uint32_t)b[3] << 24);
++#endif
++}
++
+ static void
+ poly1305_init(poly1305_state_internal_t *st, const unsigned char key[32])
+ {
+     /* r &= 0xffffffc0ffffffc0ffffffc0fffffff - wiped after finalization */
+-    st->r[0] = (LOAD32_LE(&key[0])) & 0x3ffffff;
+-    st->r[1] = (LOAD32_LE(&key[3]) >> 2) & 0x3ffff03;
+-    st->r[2] = (LOAD32_LE(&key[6]) >> 4) & 0x3ffc0ff;
+-    st->r[3] = (LOAD32_LE(&key[9]) >> 6) & 0x3f03fff;
+-    st->r[4] = (LOAD32_LE(&key[12]) >> 8) & 0x00fffff;
++    if (((uintptr_t) key & 3) == 0) {
++        uint32_t k0 = load32_le_aligned(&key[0]);
++        uint32_t k1 = load32_le_aligned(&key[4]);
++        uint32_t k2 = load32_le_aligned(&key[8]);
++        uint32_t k3 = load32_le_aligned(&key[12]);
++
++        st->r[0] = k0 & 0x3ffffff;
++        st->r[1] = ((k0 >> 26) | (k1 << 6)) & 0x3ffff03;
++        st->r[2] = ((k1 >> 20) | (k2 << 12)) & 0x3ffc0ff;
++        st->r[3] = ((k2 >> 14) | (k3 << 18)) & 0x3f03fff;
++        st->r[4] = (k3 >> 8) & 0x00fffff;
++
++        /* save pad for later */
++        st->pad[0] = load32_le_aligned(&key[16]);
++        st->pad[1] = load32_le_aligned(&key[20]);
++        st->pad[2] = load32_le_aligned(&key[24]);
++        st->pad[3] = load32_le_aligned(&key[28]);
++    } else {
++        st->r[0] = (LOAD32_LE(&key[0])) & 0x3ffffff;
++        st->r[1] = (LOAD32_LE(&key[3]) >> 2) & 0x3ffff03;
++        st->r[2] = (LOAD32_LE(&key[6]) >> 4) & 0x3ffc0ff;
++        st->r[3] = (LOAD32_LE(&key[9]) >> 6) & 0x3f03fff;
++        st->r[4] = (LOAD32_LE(&key[12]) >> 8) & 0x00fffff;
++
++        /* save pad for later */
++        st->pad[0] = LOAD32_LE(&key[16]);
++        st->pad[1] = LOAD32_LE(&key[20]);
++        st->pad[2] = LOAD32_LE(&key[24]);
++        st->pad[3] = LOAD32_LE(&key[28]);
++    }
+ 
+     /* h = 0 */
+     st->h[0] = 0;
+@@ -42,12 +88,6 @@ poly1305_init(poly1305_state_internal_t *st, const unsigned char key[32])
+     st->h[3] = 0;
+     st->h[4] = 0;
+ 
+-    /* save pad for later */
+-    st->pad[0] = LOAD32_LE(&key[16]);
+-    st->pad[1] = LOAD32_LE(&key[20]);
+-    st->pad[2] = LOAD32_LE(&key[24]);
+-    st->pad[3] = LOAD32_LE(&key[28]);
+-
+     st->leftover = 0;
+     st->final    = 0;
+ }
+@@ -57,6 +97,7 @@ poly1305_blocks(poly1305_state_internal_t *st, const unsigned char *m,
+                 unsigned long long bytes)
+ {
+     const unsigned long hibit = (st->final) ? 0UL : (1UL << 24); /* 1 << 128 */
++    const int           aligned = (((uintptr_t) m & 3) == 0);
+     unsigned long       r0, r1, r2, r3, r4;
+     unsigned long       s1, s2, s3, s4;
+     unsigned long       h0, h1, h2, h3, h4;
+@@ -81,12 +122,32 @@ poly1305_blocks(poly1305_state_internal_t *st, const unsigned char *m,
+     h4 = st->h[4];
+ 
+     while (bytes >= poly1305_block_size) {
+-        /* h += m[i] */
+-        h0 += (LOAD32_LE(m + 0)) & 0x3ffffff;
+-        h1 += (LOAD32_LE(m + 3) >> 2) & 0x3ffffff;
+-        h2 += (LOAD32_LE(m + 6) >> 4) & 0x3ffffff;
+-        h3 += (LOAD32_LE(m + 9) >> 6) & 0x3ffffff;
+-        h4 += (LOAD32_LE(m + 12) >> 8) | hibit;
++        /*
++         * h += m[i]
++         *
++         * If m is 4-byte aligned, use 4 aligned 32-bit loads and
++         * reconstruct the 26-bit limbs with shifts. Otherwise fall
++         * back to the original 5 unaligned byte-at-a-time loads.
++         * Alignment is constant for all iterations (m advances by 16).
++         */
++        if (aligned) {
++            uint32_t w0 = load32_le_aligned(m + 0);
++            uint32_t w1 = load32_le_aligned(m + 4);
++            uint32_t w2 = load32_le_aligned(m + 8);
++            uint32_t w3 = load32_le_aligned(m + 12);
++
++            h0 += w0 & 0x3ffffff;
++            h1 += ((w0 >> 26) | (w1 << 6)) & 0x3ffffff;
++            h2 += ((w1 >> 20) | (w2 << 12)) & 0x3ffffff;
++            h3 += ((w2 >> 14) | (w3 << 18)) & 0x3ffffff;
++            h4 += (w3 >> 8) | hibit;
++        } else {
++            h0 += (LOAD32_LE(m + 0)) & 0x3ffffff;
++            h1 += (LOAD32_LE(m + 3) >> 2) & 0x3ffffff;
++            h2 += (LOAD32_LE(m + 6) >> 4) & 0x3ffffff;
++            h3 += (LOAD32_LE(m + 9) >> 6) & 0x3ffffff;
++            h4 += (LOAD32_LE(m + 12) >> 8) | hibit;
++        }
+ 
+         /* h *= r */
+         d0 = ((unsigned long long) h0 * r0) + ((unsigned long long) h1 * s4) +
