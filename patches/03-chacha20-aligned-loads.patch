@@ -1,0 +1,175 @@
+diff --git a/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c b/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
+index 40cccbf8..e909780d 100644
+--- a/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
++++ b/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
+@@ -13,6 +13,35 @@
+ #include "crypto_stream_chacha20.h"
+ #include "private/common.h"
+ #include "utils.h"
++#include <stdint.h>
++
++/* Load/store 32-bit LE from a 4-byte aligned pointer.
++   On little-endian targets, compiles to a single aligned load/store. */
++static inline __attribute__((always_inline)) uint32_t
++chacha_load32_le_aligned(const void *p) {
++#if (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
++    return *(const uint32_t *)p;
++#else
++    const uint8_t *b = (const uint8_t *)p;
++    return ((uint32_t)b[0])
++         | ((uint32_t)b[1] << 8)
++         | ((uint32_t)b[2] << 16)
++         | ((uint32_t)b[3] << 24);
++#endif
++}
++
++static inline __attribute__((always_inline)) void
++chacha_store32_le_aligned(void *p, uint32_t v) {
++#if (defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
++    *(uint32_t *)p = v;
++#else
++    uint8_t *b = (uint8_t *)p;
++    b[0] = (uint8_t)(v);
++    b[1] = (uint8_t)(v >> 8);
++    b[2] = (uint8_t)(v >> 16);
++    b[3] = (uint8_t)(v >> 24);
++#endif
++}
+ 
+ #include "../stream_chacha20.h"
+ #include "chacha20_ref.h"
+@@ -85,13 +114,15 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
+         x15;
+     uint32_t j0, j1, j2, j3, j4, j5, j6, j7, j8, j9, j10, j11, j12, j13, j14,
+         j15;
+-    uint8_t     *ctarget = NULL;
+-    uint8_t      tmp[64];
+-    unsigned int i;
++    uint8_t                     *ctarget = NULL;
++    CRYPTO_ALIGN(4) uint8_t      tmp[64];
++    unsigned int                 i;
++    int                          aligned;
+ 
+     if (!bytes) {
+         return; /* LCOV_EXCL_LINE */
+     }
++    aligned = (((uintptr_t) m & 3) == 0) && (((uintptr_t) c & 3) == 0);
+     j0  = ctx->input[0];
+     j1  = ctx->input[1];
+     j2  = ctx->input[2];
+@@ -162,22 +193,41 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
+         x14 = PLUS(x14, j14);
+         x15 = PLUS(x15, j15);
+ 
+-        x0  = XOR(x0, LOAD32_LE(m + 0));
+-        x1  = XOR(x1, LOAD32_LE(m + 4));
+-        x2  = XOR(x2, LOAD32_LE(m + 8));
+-        x3  = XOR(x3, LOAD32_LE(m + 12));
+-        x4  = XOR(x4, LOAD32_LE(m + 16));
+-        x5  = XOR(x5, LOAD32_LE(m + 20));
+-        x6  = XOR(x6, LOAD32_LE(m + 24));
+-        x7  = XOR(x7, LOAD32_LE(m + 28));
+-        x8  = XOR(x8, LOAD32_LE(m + 32));
+-        x9  = XOR(x9, LOAD32_LE(m + 36));
+-        x10 = XOR(x10, LOAD32_LE(m + 40));
+-        x11 = XOR(x11, LOAD32_LE(m + 44));
+-        x12 = XOR(x12, LOAD32_LE(m + 48));
+-        x13 = XOR(x13, LOAD32_LE(m + 52));
+-        x14 = XOR(x14, LOAD32_LE(m + 56));
+-        x15 = XOR(x15, LOAD32_LE(m + 60));
++        if (aligned) {
++            x0  = XOR(x0, chacha_load32_le_aligned(m + 0));
++            x1  = XOR(x1, chacha_load32_le_aligned(m + 4));
++            x2  = XOR(x2, chacha_load32_le_aligned(m + 8));
++            x3  = XOR(x3, chacha_load32_le_aligned(m + 12));
++            x4  = XOR(x4, chacha_load32_le_aligned(m + 16));
++            x5  = XOR(x5, chacha_load32_le_aligned(m + 20));
++            x6  = XOR(x6, chacha_load32_le_aligned(m + 24));
++            x7  = XOR(x7, chacha_load32_le_aligned(m + 28));
++            x8  = XOR(x8, chacha_load32_le_aligned(m + 32));
++            x9  = XOR(x9, chacha_load32_le_aligned(m + 36));
++            x10 = XOR(x10, chacha_load32_le_aligned(m + 40));
++            x11 = XOR(x11, chacha_load32_le_aligned(m + 44));
++            x12 = XOR(x12, chacha_load32_le_aligned(m + 48));
++            x13 = XOR(x13, chacha_load32_le_aligned(m + 52));
++            x14 = XOR(x14, chacha_load32_le_aligned(m + 56));
++            x15 = XOR(x15, chacha_load32_le_aligned(m + 60));
++        } else {
++            x0  = XOR(x0, LOAD32_LE(m + 0));
++            x1  = XOR(x1, LOAD32_LE(m + 4));
++            x2  = XOR(x2, LOAD32_LE(m + 8));
++            x3  = XOR(x3, LOAD32_LE(m + 12));
++            x4  = XOR(x4, LOAD32_LE(m + 16));
++            x5  = XOR(x5, LOAD32_LE(m + 20));
++            x6  = XOR(x6, LOAD32_LE(m + 24));
++            x7  = XOR(x7, LOAD32_LE(m + 28));
++            x8  = XOR(x8, LOAD32_LE(m + 32));
++            x9  = XOR(x9, LOAD32_LE(m + 36));
++            x10 = XOR(x10, LOAD32_LE(m + 40));
++            x11 = XOR(x11, LOAD32_LE(m + 44));
++            x12 = XOR(x12, LOAD32_LE(m + 48));
++            x13 = XOR(x13, LOAD32_LE(m + 52));
++            x14 = XOR(x14, LOAD32_LE(m + 56));
++            x15 = XOR(x15, LOAD32_LE(m + 60));
++        }
+ 
+         j12 = PLUSONE(j12);
+         /* LCOV_EXCL_START */
+@@ -186,22 +236,41 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
+         }
+         /* LCOV_EXCL_STOP */
+ 
+-        STORE32_LE(c + 0, x0);
+-        STORE32_LE(c + 4, x1);
+-        STORE32_LE(c + 8, x2);
+-        STORE32_LE(c + 12, x3);
+-        STORE32_LE(c + 16, x4);
+-        STORE32_LE(c + 20, x5);
+-        STORE32_LE(c + 24, x6);
+-        STORE32_LE(c + 28, x7);
+-        STORE32_LE(c + 32, x8);
+-        STORE32_LE(c + 36, x9);
+-        STORE32_LE(c + 40, x10);
+-        STORE32_LE(c + 44, x11);
+-        STORE32_LE(c + 48, x12);
+-        STORE32_LE(c + 52, x13);
+-        STORE32_LE(c + 56, x14);
+-        STORE32_LE(c + 60, x15);
++        if (aligned) {
++            chacha_store32_le_aligned(c + 0, x0);
++            chacha_store32_le_aligned(c + 4, x1);
++            chacha_store32_le_aligned(c + 8, x2);
++            chacha_store32_le_aligned(c + 12, x3);
++            chacha_store32_le_aligned(c + 16, x4);
++            chacha_store32_le_aligned(c + 20, x5);
++            chacha_store32_le_aligned(c + 24, x6);
++            chacha_store32_le_aligned(c + 28, x7);
++            chacha_store32_le_aligned(c + 32, x8);
++            chacha_store32_le_aligned(c + 36, x9);
++            chacha_store32_le_aligned(c + 40, x10);
++            chacha_store32_le_aligned(c + 44, x11);
++            chacha_store32_le_aligned(c + 48, x12);
++            chacha_store32_le_aligned(c + 52, x13);
++            chacha_store32_le_aligned(c + 56, x14);
++            chacha_store32_le_aligned(c + 60, x15);
++        } else {
++            STORE32_LE(c + 0, x0);
++            STORE32_LE(c + 4, x1);
++            STORE32_LE(c + 8, x2);
++            STORE32_LE(c + 12, x3);
++            STORE32_LE(c + 16, x4);
++            STORE32_LE(c + 20, x5);
++            STORE32_LE(c + 24, x6);
++            STORE32_LE(c + 28, x7);
++            STORE32_LE(c + 32, x8);
++            STORE32_LE(c + 36, x9);
++            STORE32_LE(c + 40, x10);
++            STORE32_LE(c + 44, x11);
++            STORE32_LE(c + 48, x12);
++            STORE32_LE(c + 52, x13);
++            STORE32_LE(c + 56, x14);
++            STORE32_LE(c + 60, x15);
++        }
+ 
+         if (bytes <= 64) {
+             if (bytes < 64) {
