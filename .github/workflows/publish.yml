@@ -39,3 +39,26 @@ jobs:
         with:
           files: dist/*.tar.gz
           tag_name: ${{ github.event.release.tag_name }}
+  publish-espressif:
+    name: Publish to Espressif
+    runs-on: ubuntu-latest
+    environment: espressif
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: true
+      - name: Apply patches
+        run: |-
+          for f in patches/*.patch; do
+            echo "Applying patch $f"
+            git -C libsodium apply "../${f}"
+          done
+      - name: Publish package
+        uses: espressif/upload-components-ci-action@2ce17d73e35473317c1419dbd4f007aacb593040 # v2.2.1
+        with:
+          version: ${{ github.event.release.tag_name }}
+          components: |
+            libsodium: .
+          namespace: esphome
