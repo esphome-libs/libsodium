@@ -55,7 +55,7 @@
             "+<sodium/core.c>",
             "+<sodium/runtime.c>",
             "+<sodium/utils.c>",
-            "+<../../port/version.c>"
+            "+<../../../port/version.c>"
         ]
     }
 }
