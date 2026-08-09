@@ -5,7 +5,7 @@
     "keywords": "libsodium",
     "repository": {
         "type": "git",
-        "url": "https://github.com/esphome/libsodium-esphome.git"
+        "url": "https://github.com/esphome-libs/libsodium.git"
     },
     "export": {
         "include": [
