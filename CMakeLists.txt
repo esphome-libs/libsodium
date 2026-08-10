@@ -74,10 +74,13 @@ else()
   target_include_directories(sodium
     PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/libsodium/src/libsodium/include"
+    # The public sodium.h includes "sodium/version.h", which this port ships
+    # pre-generated here instead of generating it from version.h.in, so
+    # port_include has to be on the consumer's include path too.
+    "${CMAKE_CURRENT_SOURCE_DIR}/port_include"
     PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/libsodium/src/libsodium"
     "${CMAKE_CURRENT_SOURCE_DIR}/libsodium/src/libsodium/include/sodium"
-    "${CMAKE_CURRENT_SOURCE_DIR}/port_include"
   )
 
   target_compile_definitions(sodium PRIVATE CONFIGURED=1)
