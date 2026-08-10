@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  submodule-pin:
+    name: Submodule pin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: false
+
+      - name: Check libsodium submodule is pinned to a tagged release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/resolve_version.py check
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: false
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+
+      - name: Run test suite with branch coverage
+        run: |
+          uv run --no-project --with pytest --with pytest-cov \
+            pytest .github/scripts -q --cov=resolve_version --cov-branch \
+            --cov-report=term-missing --cov-fail-under=100

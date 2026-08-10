@@ -1,0 +1,42 @@
+# Tags are bare version strings with no "v" prefix (1.10021.2, 1.10021.1, ...).
+# publish.yml derives dist/libsodium-<tag>.tar.gz from the release tag, while
+# `pio package pack` names that tarball from the library.json version, so a
+# "v" prefix here would make the two disagree and break the publish job.
+name-template: "$RESOLVED_VERSION"
+tag-template: "$RESOLVED_VERSION"
+
+categories:
+  - title: "Breaking Changes"
+    label: "breaking-change"
+  - title: "Dependencies"
+    collapse-after: 1
+    labels:
+      - "dependencies"
+
+# This resolver is only a fallback. The version scheme here is
+# 1.<libsodium version as MAJOR*10000 + MINOR*100 + PATCH>.<port patch number>,
+# so libsodium 1.0.21 gives 1.10021.N. The minor field is not a semver minor:
+# it states which libsodium release the submodule is pinned to, so it cannot be
+# derived from PR labels at all. Release Drafter is therefore handed an explicit
+# `version:` computed in .github/workflows/release-drafter.yml, which reads the
+# libsodium version out of the submodule and overrides everything below.
+#
+# Labels only ever move the port patch number, hence patch-only here. Do not
+# restore the standard major/minor resolver: a "minor"/"new-feature" label
+# resolving 1.10021.2 -> 1.10022.0 would claim this port ships libsodium 1.0.22
+# when it does not.
+version-resolver:
+  patch:
+    labels:
+      - "bugfix"
+      - "dependencies"
+      - "documentation"
+      - "enhancement"
+  default: patch
+
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...$RESOLVED_VERSION

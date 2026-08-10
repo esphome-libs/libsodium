@@ -9,3 +9,8 @@
 .history/
 
 dist/
+
+# Python test artifacts from .github/scripts
+__pycache__/
+.pytest_cache/
+.coverage
