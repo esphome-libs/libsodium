@@ -10,7 +10,11 @@
    so the cadence is ~1 ms regardless of loop cost, and a non-firing call
    is only a cycle-count read. The call sites do not depend on secret data. */
 #if defined(ESP8266) || defined(ARDUINO_ARCH_ESP8266)
+#ifdef __cplusplus
+extern "C" void optimistic_yield(unsigned int interval_us);
+#else
 extern void optimistic_yield(unsigned int interval_us);
+#endif
 #define SODIUM_ESP8266_YIELD() optimistic_yield(1000u)
 #else
 #define SODIUM_ESP8266_YIELD() (void) 0
