@@ -1,39 +1,7 @@
---- a/src/libsodium/crypto_scalarmult/curve25519/ref10/x25519_ref10.c	2026-08-17 14:53:55
-+++ b/src/libsodium/crypto_scalarmult/curve25519/ref10/x25519_ref10.c	2026-08-17 14:53:55
-@@ -8,6 +8,21 @@
- #include "utils.h"
- #include "x25519_ref10.h"
- 
-+/* ESPHome ESP8266 port: WiFi and lwip only run when the sketch yields
-+   (cooperative CONT/SYS scheduling). A full scalar multiplication blocks
-+   for ~70-200 ms at 80 MHz, long enough for the WiFi RX queue to overflow
-+   and drop inbound frames, which stalls TCP handshakes on retransmission
-+   timeouts. Yield periodically from the long loops; optimistic_yield
-+   rate-limits itself to at most one yield per interval, and the yield
-+   points do not depend on secret data. */
-+#if defined(ESP8266) || defined(ARDUINO_ARCH_ESP8266)
-+extern void optimistic_yield(unsigned int interval_us);
-+#define SODIUM_ESP8266_YIELD() optimistic_yield(1000u)
-+#else
-+#define SODIUM_ESP8266_YIELD() (void) 0
-+#endif
-+
-+
- /*
-  * Reject small order points early to mitigate the implications of
-  * unexpected optimizations that would affect the ref10 code.
-@@ -104,6 +119,9 @@
- 
-     swap = 0;
-     for (pos = 254; pos >= 0; --pos) {
-+        if ((pos & 31) == 0) {
-+            SODIUM_ESP8266_YIELD();
-+        }
-         b = t[pos / 8] >> (pos & 7);
-         b &= 1;
-         swap ^= b;
---- a/src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c	2026-08-17 14:53:55
-+++ b/src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c	2026-08-17 14:53:55
+diff --git a/src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c b/src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c
+index 6357c5d..d2f5c78 100644
+--- a/src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c
++++ b/src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c
 @@ -8,6 +8,21 @@
  #include "private/ed25519_ref10.h"
  #include "utils.h"
@@ -56,7 +24,7 @@
  static inline uint64_t
  load_3(const unsigned char *in)
  {
-@@ -949,6 +964,9 @@
+@@ -949,6 +964,9 @@ ge25519_scalarmult_base(ge25519_p3 *h, const unsigned char *a)
      ge25519_p3_0(h);
  
      for (i = 1; i < 64; i += 2) {
@@ -66,7 +34,7 @@
          ge25519_cmov8_base(&t, i / 2, e[i]);
          ge25519_madd(&r, h, &t);
          ge25519_p1p1_to_p3(h, &r);
-@@ -964,6 +982,9 @@
+@@ -964,6 +982,9 @@ ge25519_scalarmult_base(ge25519_p3 *h, const unsigned char *a)
      ge25519_p1p1_to_p3(h, &r);
  
      for (i = 0; i < 64; i += 2) {
@@ -76,3 +44,39 @@
          ge25519_cmov8_base(&t, i / 2, e[i]);
          ge25519_madd(&r, h, &t);
          ge25519_p1p1_to_p3(h, &r);
+diff --git a/src/libsodium/crypto_scalarmult/curve25519/ref10/x25519_ref10.c b/src/libsodium/crypto_scalarmult/curve25519/ref10/x25519_ref10.c
+index d298922..21b16e1 100644
+--- a/src/libsodium/crypto_scalarmult/curve25519/ref10/x25519_ref10.c
++++ b/src/libsodium/crypto_scalarmult/curve25519/ref10/x25519_ref10.c
+@@ -8,6 +8,21 @@
+ #include "utils.h"
+ #include "x25519_ref10.h"
+ 
++/* ESPHome ESP8266 port: WiFi and lwip only run when the sketch yields
++   (cooperative CONT/SYS scheduling). A full scalar multiplication blocks
++   for ~70-200 ms at 80 MHz, long enough for the WiFi RX queue to overflow
++   and drop inbound frames, which stalls TCP handshakes on retransmission
++   timeouts. Yield periodically from the long loops; optimistic_yield
++   rate-limits itself to at most one yield per interval, and the yield
++   points do not depend on secret data. */
++#if defined(ESP8266) || defined(ARDUINO_ARCH_ESP8266)
++extern void optimistic_yield(unsigned int interval_us);
++#define SODIUM_ESP8266_YIELD() optimistic_yield(1000u)
++#else
++#define SODIUM_ESP8266_YIELD() (void) 0
++#endif
++
++
+ /*
+  * Reject small order points early to mitigate the implications of
+  * unexpected optimizations that would affect the ref10 code.
+@@ -104,6 +119,9 @@ crypto_scalarmult_curve25519_ref10(unsigned char *q,
+ 
+     swap = 0;
+     for (pos = 254; pos >= 0; --pos) {
++        if ((pos & 31) == 0) {
++            SODIUM_ESP8266_YIELD();
++        }
+         b = t[pos / 8] >> (pos & 7);
+         b &= 1;
+         swap ^= b;
