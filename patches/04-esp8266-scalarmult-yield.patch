@@ -6,7 +6,7 @@ index 6357c5d..976653a 100644
  #include "private/ed25519_ref10.h"
  #include "utils.h"
  
-+#include "esphome_yield.h"
++#include "sodium/esphome_yield.h"
 +
  static inline uint64_t
  load_3(const unsigned char *in)
@@ -82,7 +82,7 @@ index d298922..1c60a72 100644
  #include "utils.h"
  #include "x25519_ref10.h"
  
-+#include "esphome_yield.h"
++#include "sodium/esphome_yield.h"
 +
  /*
   * Reject small order points early to mitigate the implications of
