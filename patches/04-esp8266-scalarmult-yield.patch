@@ -1,0 +1,97 @@
+diff --git a/src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c b/src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c
+index 6357c5d..976653a 100644
+--- a/src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c
++++ b/src/libsodium/crypto_core/ed25519/ref10/ed25519_ref10.c
+@@ -8,6 +8,8 @@
+ #include "private/ed25519_ref10.h"
+ #include "utils.h"
+ 
++#include "sodium/esphome_yield.h"
++
+ static inline uint64_t
+ load_3(const unsigned char *in)
+ {
+@@ -68,38 +70,46 @@ fe25519_invert(fe25519 out, const fe25519 z)
+     fe25519_mul(t1, t1, t2);
+     fe25519_sq(t2, t1);
+     for (i = 1; i < 5; ++i) {
++        SODIUM_ESP8266_YIELD();
+         fe25519_sq(t2, t2);
+     }
+     fe25519_mul(t1, t2, t1);
+     fe25519_sq(t2, t1);
+     for (i = 1; i < 10; ++i) {
++        SODIUM_ESP8266_YIELD();
+         fe25519_sq(t2, t2);
+     }
+     fe25519_mul(t2, t2, t1);
+     fe25519_sq(t3, t2);
+     for (i = 1; i < 20; ++i) {
++        SODIUM_ESP8266_YIELD();
+         fe25519_sq(t3, t3);
+     }
+     fe25519_mul(t2, t3, t2);
+     for (i = 1; i < 11; ++i) {
++        SODIUM_ESP8266_YIELD();
+         fe25519_sq(t2, t2);
+     }
+     fe25519_mul(t1, t2, t1);
+     fe25519_sq(t2, t1);
+     for (i = 1; i < 50; ++i) {
++        SODIUM_ESP8266_YIELD();
+         fe25519_sq(t2, t2);
+     }
+     fe25519_mul(t2, t2, t1);
+     fe25519_sq(t3, t2);
+     for (i = 1; i < 100; ++i) {
++        SODIUM_ESP8266_YIELD();
+         fe25519_sq(t3, t3);
+     }
+     fe25519_mul(t2, t3, t2);
+     for (i = 1; i < 51; ++i) {
++        SODIUM_ESP8266_YIELD();
+         fe25519_sq(t2, t2);
+     }
+     fe25519_mul(t1, t2, t1);
+     for (i = 1; i < 6; ++i) {
++        SODIUM_ESP8266_YIELD();
+         fe25519_sq(t1, t1);
+     }
+     fe25519_mul(out, t1, t0);
+@@ -949,6 +959,7 @@ ge25519_scalarmult_base(ge25519_p3 *h, const unsigned char *a)
+     ge25519_p3_0(h);
+ 
+     for (i = 1; i < 64; i += 2) {
++        SODIUM_ESP8266_YIELD();
+         ge25519_cmov8_base(&t, i / 2, e[i]);
+         ge25519_madd(&r, h, &t);
+         ge25519_p1p1_to_p3(h, &r);
+@@ -964,6 +975,7 @@ ge25519_scalarmult_base(ge25519_p3 *h, const unsigned char *a)
+     ge25519_p1p1_to_p3(h, &r);
+ 
+     for (i = 0; i < 64; i += 2) {
++        SODIUM_ESP8266_YIELD();
+         ge25519_cmov8_base(&t, i / 2, e[i]);
+         ge25519_madd(&r, h, &t);
+         ge25519_p1p1_to_p3(h, &r);
+diff --git a/src/libsodium/crypto_scalarmult/curve25519/ref10/x25519_ref10.c b/src/libsodium/crypto_scalarmult/curve25519/ref10/x25519_ref10.c
+index d298922..1c60a72 100644
+--- a/src/libsodium/crypto_scalarmult/curve25519/ref10/x25519_ref10.c
++++ b/src/libsodium/crypto_scalarmult/curve25519/ref10/x25519_ref10.c
+@@ -8,6 +8,8 @@
+ #include "utils.h"
+ #include "x25519_ref10.h"
+ 
++#include "sodium/esphome_yield.h"
++
+ /*
+  * Reject small order points early to mitigate the implications of
+  * unexpected optimizations that would affect the ref10 code.
+@@ -104,6 +106,7 @@ crypto_scalarmult_curve25519_ref10(unsigned char *q,
+ 
+     swap = 0;
+     for (pos = 254; pos >= 0; --pos) {
++        SODIUM_ESP8266_YIELD();
+         b = t[pos / 8] >> (pos & 7);
+         b &= 1;
+         swap ^= b;
