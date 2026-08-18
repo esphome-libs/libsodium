@@ -28,16 +28,14 @@ extern "C" {
  * gated on a marker header that patch 06 creates inside the submodule;
  * an unpatched checkout (e.g. the generic CMake target built straight
  * from the pristine submodule) sees the declarations but never the
- * capability macro. Published packages always ship patched, so compilers
- * without __has_include (which the ESP toolchains all have) fall back to
- * defining it.
+ * capability macro. A compiler without __has_include (none of the
+ * supported toolchains) also never gets the macro, which fails safe:
+ * consumers just take their stock libsodium code path.
  */
 #if defined(__has_include)
 # if __has_include(<sodium/sodium_esphome_patched.h>)
 #  define SODIUM_ESPHOME_NOISE_FAST_PATH 1
 # endif
-#else
-# define SODIUM_ESPHOME_NOISE_FAST_PATH 1
 #endif
 
 /*
