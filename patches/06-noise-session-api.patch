@@ -1,0 +1,279 @@
+ESPHome noise session API: session persistent ChaCha20 key schedule,
+fused block0 plus payload pass with a NULL-input keystream mode, and a
+one pass Poly1305 AEAD transcript MAC. Declarations live in
+port_include/sodium/sodium_esphome.h; this patch also creates the
+marker header that gates the capability macro and forces the tail
+block onto the aligned path (safe because patch 03 aligns tmp).
+Depends on patches 03 and 05.
+
+diff --git a/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c b/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c
+index 5ab791cd..bfde5040 100644
+--- a/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c
++++ b/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c
+@@ -1,6 +1,8 @@
+ 
+ #include <string.h>
+ 
++#include <sodium/sodium_esphome.h>
++
+ #include "poly1305_donna.h"
+ #include "crypto_verify_16.h"
+ #include "private/common.h"
+@@ -108,6 +110,54 @@ crypto_onetimeauth_poly1305_donna_verify(const unsigned char *h,
+     return crypto_verify_16(h, correct);
+ }
+ 
++/*
++ * ESPHome extension: one-pass Poly1305 over the ChaCha20-Poly1305 AEAD
++ * transcript (ad, zero padding, ciphertext, zero padding, then the two
++ * 64-bit lengths), mirroring the MAC computed by
++ * crypto_aead_chacha20poly1305_ietf_encrypt_detached(). Calls the donna
++ * implementation directly instead of the dispatched init/update/final
++ * sequence.
++ */
++int
++crypto_onetimeauth_poly1305_aead_mac(unsigned char *mac,
++                                     const unsigned char *ad,
++                                     unsigned long long adlen,
++                                     const unsigned char *c,
++                                     unsigned long long clen,
++                                     const unsigned char *key)
++{
++    static const unsigned char _pad0[16] = { 0 };
++
++    CRYPTO_ALIGN(64) poly1305_state_internal_t st;
++    CRYPTO_ALIGN(16) unsigned char             tail[32];
++    size_t                                     rem;
++    size_t                                     pad;
++
++    poly1305_init(&st, key);
++    if (adlen > 0U) {
++        poly1305_update(&st, ad, adlen);
++        poly1305_update(&st, _pad0, (size_t) ((0x10 - adlen) & 0xf));
++    }
++    /*
++     * Process the ciphertext in whole blocks, then hash the remainder, the
++     * zero padding and both lengths from one aligned buffer in a single
++     * update. st.leftover stays zero throughout because the ad was padded
++     * to a block boundary above.
++     */
++    rem = (size_t) (clen & 15U);
++    poly1305_update(&st, c, clen - rem);
++    memcpy(tail, c + (clen - rem), rem);
++    pad = (size_t) ((0x10 - clen) & 0xf);
++    memset(tail + rem, 0, pad);
++    STORE64_LE(tail + rem + pad, adlen);
++    STORE64_LE(tail + rem + pad + 8, clen);
++    poly1305_update(&st, tail, rem + pad + 16U);
++    /* poly1305_finish wipes the state */
++    poly1305_finish(&st, mac);
++
++    return 0;
++}
++
+ struct crypto_onetimeauth_poly1305_implementation
+     crypto_onetimeauth_poly1305_donna_implementation = {
+         SODIUM_C99(.onetimeauth =) crypto_onetimeauth_poly1305_donna,
+diff --git a/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c b/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
+index b01f0007..84609a21 100644
+--- a/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
++++ b/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
+@@ -14,6 +14,7 @@
+ #include "private/common.h"
+ #include "utils.h"
+ #include <stdint.h>
++#include <sodium/sodium_esphome.h>
+ 
+ /* Load/store 32-bit LE from a 4-byte aligned pointer.
+    On little-endian targets, compiles to a single aligned load/store. */
+@@ -142,11 +143,14 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
+ 
+     for (;;) {
+         if (bytes < 64) {
+-            memcpy(tmp, m, (size_t) bytes);
+-            memset(tmp + bytes, 0, (size_t) (64 - bytes));
+-            m       = tmp;
++            if (m != NULL) {
++                memcpy(tmp, m, (size_t) bytes);
++                memset(tmp + bytes, 0, (size_t) (64 - bytes));
++                m = tmp;
++            }
+             ctarget = c;
+             c       = tmp;
++            aligned = 1;
+         }
+         x0  = j0;
+         x1  = j1;
+@@ -191,40 +195,42 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
+         x14 = PLUS(x14, j14);
+         x15 = PLUS(x15, j15);
+ 
+-        if (aligned) {
+-            x0  = XOR(x0, chacha_load32_le_aligned(m + 0));
+-            x1  = XOR(x1, chacha_load32_le_aligned(m + 4));
+-            x2  = XOR(x2, chacha_load32_le_aligned(m + 8));
+-            x3  = XOR(x3, chacha_load32_le_aligned(m + 12));
+-            x4  = XOR(x4, chacha_load32_le_aligned(m + 16));
+-            x5  = XOR(x5, chacha_load32_le_aligned(m + 20));
+-            x6  = XOR(x6, chacha_load32_le_aligned(m + 24));
+-            x7  = XOR(x7, chacha_load32_le_aligned(m + 28));
+-            x8  = XOR(x8, chacha_load32_le_aligned(m + 32));
+-            x9  = XOR(x9, chacha_load32_le_aligned(m + 36));
+-            x10 = XOR(x10, chacha_load32_le_aligned(m + 40));
+-            x11 = XOR(x11, chacha_load32_le_aligned(m + 44));
+-            x12 = XOR(x12, chacha_load32_le_aligned(m + 48));
+-            x13 = XOR(x13, chacha_load32_le_aligned(m + 52));
+-            x14 = XOR(x14, chacha_load32_le_aligned(m + 56));
+-            x15 = XOR(x15, chacha_load32_le_aligned(m + 60));
+-        } else {
+-            x0  = XOR(x0, LOAD32_LE(m + 0));
+-            x1  = XOR(x1, LOAD32_LE(m + 4));
+-            x2  = XOR(x2, LOAD32_LE(m + 8));
+-            x3  = XOR(x3, LOAD32_LE(m + 12));
+-            x4  = XOR(x4, LOAD32_LE(m + 16));
+-            x5  = XOR(x5, LOAD32_LE(m + 20));
+-            x6  = XOR(x6, LOAD32_LE(m + 24));
+-            x7  = XOR(x7, LOAD32_LE(m + 28));
+-            x8  = XOR(x8, LOAD32_LE(m + 32));
+-            x9  = XOR(x9, LOAD32_LE(m + 36));
+-            x10 = XOR(x10, LOAD32_LE(m + 40));
+-            x11 = XOR(x11, LOAD32_LE(m + 44));
+-            x12 = XOR(x12, LOAD32_LE(m + 48));
+-            x13 = XOR(x13, LOAD32_LE(m + 52));
+-            x14 = XOR(x14, LOAD32_LE(m + 56));
+-            x15 = XOR(x15, LOAD32_LE(m + 60));
++        if (m != NULL) {
++            if (aligned) {
++                x0  = XOR(x0, chacha_load32_le_aligned(m + 0));
++                x1  = XOR(x1, chacha_load32_le_aligned(m + 4));
++                x2  = XOR(x2, chacha_load32_le_aligned(m + 8));
++                x3  = XOR(x3, chacha_load32_le_aligned(m + 12));
++                x4  = XOR(x4, chacha_load32_le_aligned(m + 16));
++                x5  = XOR(x5, chacha_load32_le_aligned(m + 20));
++                x6  = XOR(x6, chacha_load32_le_aligned(m + 24));
++                x7  = XOR(x7, chacha_load32_le_aligned(m + 28));
++                x8  = XOR(x8, chacha_load32_le_aligned(m + 32));
++                x9  = XOR(x9, chacha_load32_le_aligned(m + 36));
++                x10 = XOR(x10, chacha_load32_le_aligned(m + 40));
++                x11 = XOR(x11, chacha_load32_le_aligned(m + 44));
++                x12 = XOR(x12, chacha_load32_le_aligned(m + 48));
++                x13 = XOR(x13, chacha_load32_le_aligned(m + 52));
++                x14 = XOR(x14, chacha_load32_le_aligned(m + 56));
++                x15 = XOR(x15, chacha_load32_le_aligned(m + 60));
++            } else {
++                x0  = XOR(x0, LOAD32_LE(m + 0));
++                x1  = XOR(x1, LOAD32_LE(m + 4));
++                x2  = XOR(x2, LOAD32_LE(m + 8));
++                x3  = XOR(x3, LOAD32_LE(m + 12));
++                x4  = XOR(x4, LOAD32_LE(m + 16));
++                x5  = XOR(x5, LOAD32_LE(m + 20));
++                x6  = XOR(x6, LOAD32_LE(m + 24));
++                x7  = XOR(x7, LOAD32_LE(m + 28));
++                x8  = XOR(x8, LOAD32_LE(m + 32));
++                x9  = XOR(x9, LOAD32_LE(m + 36));
++                x10 = XOR(x10, LOAD32_LE(m + 40));
++                x11 = XOR(x11, LOAD32_LE(m + 44));
++                x12 = XOR(x12, LOAD32_LE(m + 48));
++                x13 = XOR(x13, LOAD32_LE(m + 52));
++                x14 = XOR(x14, LOAD32_LE(m + 56));
++                x15 = XOR(x15, LOAD32_LE(m + 60));
++            }
+         }
+ 
+         j12 = PLUSONE(j12);
+@@ -281,7 +287,9 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
+         }
+         bytes -= 64;
+         c += 64;
+-        m += 64;
++        if (m != NULL) {
++            m += 64;
++        }
+     }
+ }
+ 
+@@ -368,6 +376,66 @@ stream_ietf_ext_ref_xor_ic(unsigned char *c, const unsigned char *m,
+     return 0;
+ }
+ 
++/*
++ * ESPHome extensions for the Noise ChaCha20-Poly1305 pattern: a session
++ * persistent cipher state whose key schedule is loaded once per session;
++ * per-message operations only rewrite the nonce and counter words.
++ */
++int
++crypto_stream_chacha20_ietf_session_init(
++    crypto_stream_chacha20_ietf_session_state *st, const unsigned char *k)
++{
++    chacha_ctx *ctx = (chacha_ctx *) (void *) st;
++
++    COMPILER_ASSERT(sizeof(crypto_stream_chacha20_ietf_session_state) ==
++                    sizeof(struct chacha_ctx));
++    chacha_keysetup(ctx, k);
++    /* deterministic state for a misuse of session_xor before block0_xor */
++    ctx->input[12] = 0;
++    ctx->input[13] = 0;
++    ctx->input[14] = 0;
++    ctx->input[15] = 0;
++
++    return 0;
++}
++
++int
++crypto_stream_chacha20_ietf_session_block0_xor(
++    crypto_stream_chacha20_ietf_session_state *st, unsigned char *block0,
++    unsigned char *c, const unsigned char *m, unsigned long long mlen,
++    uint64_t nonce)
++{
++    chacha_ctx *ctx = (chacha_ctx *) (void *) st;
++
++    /* IETF nonce: 4 zero bytes followed by the 64-bit nonce, little endian */
++    ctx->input[12] = 0; /* block counter */
++    ctx->input[13] = 0;
++    ctx->input[14] = (uint32_t) nonce;
++    ctx->input[15] = (uint32_t) (nonce >> 32);
++    /* NULL input makes chacha20_encrypt_bytes store pure keystream */
++    chacha20_encrypt_bytes(ctx, NULL, block0, 64);
++    /* ctx counter is now 1; the guard skips the call entirely for the
++       block0-only decrypt setup */
++    if (mlen > 0U) {
++        if (m == NULL) {
++            return -1; /* refuse to emit bare keystream on a caller bug */
++        }
++        chacha20_encrypt_bytes(ctx, m, c, mlen);
++    }
++
++    return 0;
++}
++
++int
++crypto_stream_chacha20_ietf_session_xor(
++    crypto_stream_chacha20_ietf_session_state *st, unsigned char *c,
++    const unsigned char *m, unsigned long long mlen)
++{
++    chacha20_encrypt_bytes((chacha_ctx *) (void *) st, m, c, mlen);
++
++    return 0;
++}
++
+ struct crypto_stream_chacha20_implementation
+     crypto_stream_chacha20_ref_implementation = {
+         SODIUM_C99(.stream =) stream_ref,
+diff --git a/src/libsodium/include/sodium/sodium_esphome_patched.h b/src/libsodium/include/sodium/sodium_esphome_patched.h
+new file mode 100644
+index 00000000..364b2fe7
+--- /dev/null
++++ b/src/libsodium/include/sodium/sodium_esphome_patched.h
+@@ -0,0 +1,12 @@
++#ifndef sodium_esphome_patched_H
++#define sodium_esphome_patched_H
++
++/*
++ * Marker header created by patches/06-noise-session-api.patch. Its presence
++ * tells port_include/sodium/sodium_esphome.h that the tree was patched and
++ * the session/aead entry points exist, so the capability macro can never be
++ * advertised by an unpatched checkout (e.g. the generic CMake target built
++ * straight from the pristine submodule).
++ */
++
++#endif

@@ -1,0 +1,74 @@
+Portable cleanups for the chacha20 partial block tail and the poly1305
+leftover buffering: copy with memcpy instead of byte loops. Standalone;
+applies to pristine upstream libsodium as well as this port.
+
+diff --git a/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c b/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c
+index e798072f..5ab791cd 100644
+--- a/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c
++++ b/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c
+@@ -1,4 +1,6 @@
+ 
++#include <string.h>
++
+ #include "poly1305_donna.h"
+ #include "crypto_verify_16.h"
+ #include "private/common.h"
+@@ -15,8 +17,6 @@ static void
+ poly1305_update(poly1305_state_internal_t *st, const unsigned char *m,
+                 unsigned long long bytes)
+ {
+-    unsigned long long i;
+-
+     /* handle leftover */
+     if (st->leftover) {
+         unsigned long long want = (poly1305_block_size - st->leftover);
+@@ -24,9 +24,7 @@ poly1305_update(poly1305_state_internal_t *st, const unsigned char *m,
+         if (want > bytes) {
+             want = bytes;
+         }
+-        for (i = 0; i < want; i++) {
+-            st->buffer[st->leftover + i] = m[i];
+-        }
++        memcpy(&st->buffer[st->leftover], m, (size_t) want);
+         bytes -= want;
+         m += want;
+         st->leftover += want;
+@@ -48,9 +46,7 @@ poly1305_update(poly1305_state_internal_t *st, const unsigned char *m,
+ 
+     /* store leftover */
+     if (bytes) {
+-        for (i = 0; i < bytes; i++) {
+-            st->buffer[st->leftover + i] = m[i];
+-        }
++        memcpy(&st->buffer[st->leftover], m, (size_t) bytes);
+         st->leftover += bytes;
+     }
+ }
+diff --git a/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c b/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
+index e909780d..b01f0007 100644
+--- a/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
++++ b/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
+@@ -142,10 +142,8 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
+ 
+     for (;;) {
+         if (bytes < 64) {
+-            memset(tmp, 0, 64);
+-            for (i = 0; i < bytes; ++i) {
+-                tmp[i] = m[i];
+-            }
++            memcpy(tmp, m, (size_t) bytes);
++            memset(tmp + bytes, 0, (size_t) (64 - bytes));
+             m       = tmp;
+             ctarget = c;
+             c       = tmp;
+@@ -274,9 +272,7 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
+ 
+         if (bytes <= 64) {
+             if (bytes < 64) {
+-                for (i = 0; i < (unsigned int) bytes; ++i) {
+-                    ctarget[i] = c[i]; /* ctarget cannot be NULL */
+-                }
++                memcpy(ctarget, c, (size_t) bytes); /* ctarget cannot be NULL */
+             }
+             ctx->input[12] = j12;
+             ctx->input[13] = j13;
