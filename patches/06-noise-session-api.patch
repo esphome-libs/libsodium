@@ -1,3 +1,11 @@
+ESPHome noise session API: session persistent ChaCha20 key schedule,
+fused block0 plus payload pass with a NULL-input keystream mode, and a
+one pass Poly1305 AEAD transcript MAC. Declarations live in
+port_include/sodium/sodium_esphome.h; this patch also creates the
+marker header that gates the capability macro and forces the tail
+block onto the aligned path (safe because patch 03 aligns tmp).
+Depends on patches 03 and 05.
+
 diff --git a/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c b/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c
 index 5ab791cd..bfde5040 100644
 --- a/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c
@@ -67,7 +75,7 @@ index 5ab791cd..bfde5040 100644
      crypto_onetimeauth_poly1305_donna_implementation = {
          SODIUM_C99(.onetimeauth =) crypto_onetimeauth_poly1305_donna,
 diff --git a/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c b/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
-index 4bb687d7..2e0b6685 100644
+index b01f0007..09481883 100644
 --- a/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
 +++ b/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
 @@ -14,6 +14,7 @@
@@ -78,7 +86,7 @@ index 4bb687d7..2e0b6685 100644
  
  /* Load/store 32-bit LE from a 4-byte aligned pointer.
     On little-endian targets, compiles to a single aligned load/store. */
-@@ -142,9 +143,11 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
+@@ -142,11 +143,14 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
  
      for (;;) {
          if (bytes < 64) {
@@ -92,8 +100,11 @@ index 4bb687d7..2e0b6685 100644
 +            }
              ctarget = c;
              c       = tmp;
-             aligned = 1;
-@@ -192,40 +195,42 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
++            aligned = 1;
+         }
+         x0  = j0;
+         x1  = j1;
+@@ -191,40 +195,42 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
          x14 = PLUS(x14, j14);
          x15 = PLUS(x15, j15);
  
@@ -170,7 +181,7 @@ index 4bb687d7..2e0b6685 100644
          }
  
          j12 = PLUSONE(j12);
-@@ -282,7 +287,9 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
+@@ -281,7 +287,9 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
          }
          bytes -= 64;
          c += 64;
@@ -181,7 +192,7 @@ index 4bb687d7..2e0b6685 100644
      }
  }
  
-@@ -369,6 +376,56 @@ stream_ietf_ext_ref_xor_ic(unsigned char *c, const unsigned char *m,
+@@ -368,6 +376,63 @@ stream_ietf_ext_ref_xor_ic(unsigned char *c, const unsigned char *m,
      return 0;
  }
  
@@ -194,9 +205,16 @@ index 4bb687d7..2e0b6685 100644
 +crypto_stream_chacha20_ietf_session_init(
 +    crypto_stream_chacha20_ietf_session_state *st, const unsigned char *k)
 +{
++    chacha_ctx *ctx = (chacha_ctx *) (void *) st;
++
 +    COMPILER_ASSERT(sizeof(crypto_stream_chacha20_ietf_session_state) ==
 +                    sizeof(struct chacha_ctx));
-+    chacha_keysetup((chacha_ctx *) (void *) st, k);
++    chacha_keysetup(ctx, k);
++    /* deterministic state for a misuse of session_xor before block0_xor */
++    ctx->input[12] = 0;
++    ctx->input[13] = 0;
++    ctx->input[14] = 0;
++    ctx->input[15] = 0;
 +
 +    return 0;
 +}
@@ -238,3 +256,21 @@ index 4bb687d7..2e0b6685 100644
  struct crypto_stream_chacha20_implementation
      crypto_stream_chacha20_ref_implementation = {
          SODIUM_C99(.stream =) stream_ref,
+diff --git a/src/libsodium/include/sodium/sodium_esphome_patched.h b/src/libsodium/include/sodium/sodium_esphome_patched.h
+new file mode 100644
+index 00000000..364b2fe7
+--- /dev/null
++++ b/src/libsodium/include/sodium/sodium_esphome_patched.h
+@@ -0,0 +1,12 @@
++#ifndef sodium_esphome_patched_H
++#define sodium_esphome_patched_H
++
++/*
++ * Marker header created by patches/06-noise-session-api.patch. Its presence
++ * tells port_include/sodium/sodium_esphome.h that the tree was patched and
++ * the session/aead entry points exist, so the capability macro can never be
++ * advertised by an unpatched checkout (e.g. the generic CMake target built
++ * straight from the pristine submodule).
++ */
++
++#endif

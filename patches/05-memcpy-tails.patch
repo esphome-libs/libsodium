@@ -1,3 +1,7 @@
+Portable cleanups for the chacha20 partial block tail and the poly1305
+leftover buffering: copy with memcpy instead of byte loops. Standalone;
+applies to pristine upstream libsodium as well as this port.
+
 diff --git a/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c b/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c
 index e798072f..5ab791cd 100644
 --- a/src/libsodium/crypto_onetimeauth/poly1305/donna/poly1305_donna.c
@@ -41,10 +45,10 @@ index e798072f..5ab791cd 100644
      }
  }
 diff --git a/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c b/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
-index e909780d..4bb687d7 100644
+index e909780d..b01f0007 100644
 --- a/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
 +++ b/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
-@@ -142,13 +142,12 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
+@@ -142,10 +142,8 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
  
      for (;;) {
          if (bytes < 64) {
@@ -57,11 +61,7 @@ index e909780d..4bb687d7 100644
              m       = tmp;
              ctarget = c;
              c       = tmp;
-+            aligned = 1;
-         }
-         x0  = j0;
-         x1  = j1;
-@@ -274,9 +273,7 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
+@@ -274,9 +272,7 @@ chacha20_encrypt_bytes(chacha_ctx *ctx, const uint8_t *m, uint8_t *c,
  
          if (bytes <= 64) {
              if (bytes < 64) {

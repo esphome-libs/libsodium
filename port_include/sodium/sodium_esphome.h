@@ -23,11 +23,22 @@ extern "C" {
  * Capability macro for consumers (e.g. noise-c) to detect this port. The
  * value is a version number: it is bumped if the semantics of the entry
  * points below ever change, so consumers can gate on a minimum version.
- * The functions below exist only in the patched tree that this repository
- * publishes; building the pristine submodule with this header on the
- * include path is not a supported configuration.
+ *
+ * The functions below exist only in the patched tree, so the macro is
+ * gated on a marker header that patch 06 creates inside the submodule;
+ * an unpatched checkout (e.g. the generic CMake target built straight
+ * from the pristine submodule) sees the declarations but never the
+ * capability macro. Published packages always ship patched, so compilers
+ * without __has_include (which the ESP toolchains all have) fall back to
+ * defining it.
  */
-#define SODIUM_ESPHOME_NOISE_FAST_PATH 1
+#if defined(__has_include)
+# if __has_include(<sodium/sodium_esphome_patched.h>)
+#  define SODIUM_ESPHOME_NOISE_FAST_PATH 1
+# endif
+#else
+# define SODIUM_ESPHOME_NOISE_FAST_PATH 1
+#endif
 
 /*
  * Session-persistent ChaCha20 state. The key schedule is loaded once per
@@ -46,9 +57,11 @@ int crypto_stream_chacha20_ietf_session_init(
 
 /*
  * Set the IETF nonce (4 zero bytes then the 64-bit nonce, little endian, as
- * the Noise protocol specifies), write the block-0 keystream (Poly1305 key
- * material) to block0 and, when mlen > 0, encrypt m into c starting at block
- * counter 1. Leaves the state's block counter after the last block processed.
+ * the Noise protocol specifies), write the block-0 keystream to block0 and,
+ * when mlen > 0, encrypt m into c starting at block counter 1. block0 must
+ * be at least 64 bytes: it receives the full ChaCha20 block, of which only
+ * the first 32 bytes are the Poly1305 key. Leaves the state's block counter
+ * after the last block processed.
  */
 SODIUM_EXPORT
 int crypto_stream_chacha20_ietf_session_block0_xor(
@@ -70,7 +83,7 @@ int crypto_stream_chacha20_ietf_session_xor(
 /*
  * One-pass Poly1305 over the ChaCha20-Poly1305 AEAD transcript: ad, zero
  * padding, ciphertext, zero padding, then the two 64-bit lengths. ad may be
- * NULL when adlen is 0.
+ * NULL when adlen is 0; c must be non-NULL even when clen is 0.
  */
 SODIUM_EXPORT
 int crypto_onetimeauth_poly1305_aead_mac(unsigned char *mac,
