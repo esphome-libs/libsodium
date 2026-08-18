@@ -38,3 +38,28 @@ jobs:
           uv run --no-project --with pytest --with pytest-cov \
             pytest .github/scripts -q --cov=resolve_version --cov-branch \
             --cov-report=term-missing --cov-fail-under=100
+
+  crypto-tests:
+    name: Crypto tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+
+      - name: Apply patches
+        run: |
+          for f in patches/*.patch; do
+            echo "Checking $f"
+            git -C libsodium apply --check "../$f"
+            git -C libsodium apply "../$f"
+          done
+
+      - name: Build library and tests
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release .
+          cmake --build build -j
+          gcc -O2 -Wall -Wextra -o build/kat tests/kat.c             -Ilibsodium/src/libsodium/include -Iport_include             build/libsodium.a
+
+      - name: Run known-answer and differential tests
+        run: ./build/kat
