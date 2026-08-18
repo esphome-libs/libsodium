@@ -75,7 +75,7 @@ index 5ab791cd..bfde5040 100644
      crypto_onetimeauth_poly1305_donna_implementation = {
          SODIUM_C99(.onetimeauth =) crypto_onetimeauth_poly1305_donna,
 diff --git a/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c b/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
-index b01f0007..09481883 100644
+index b01f0007..84609a21 100644
 --- a/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
 +++ b/src/libsodium/crypto_stream/chacha20/ref/chacha20_ref.c
 @@ -14,6 +14,7 @@
@@ -192,7 +192,7 @@ index b01f0007..09481883 100644
      }
  }
  
-@@ -368,6 +376,63 @@ stream_ietf_ext_ref_xor_ic(unsigned char *c, const unsigned char *m,
+@@ -368,6 +376,66 @@ stream_ietf_ext_ref_xor_ic(unsigned char *c, const unsigned char *m,
      return 0;
  }
  
@@ -237,6 +237,9 @@ index b01f0007..09481883 100644
 +    /* ctx counter is now 1; the guard skips the call entirely for the
 +       block0-only decrypt setup */
 +    if (mlen > 0U) {
++        if (m == NULL) {
++            return -1; /* refuse to emit bare keystream on a caller bug */
++        }
 +        chacha20_encrypt_bytes(ctx, m, c, mlen);
 +    }
 +

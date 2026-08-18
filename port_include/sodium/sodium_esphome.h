@@ -58,7 +58,9 @@ int crypto_stream_chacha20_ietf_session_init(
  * the Noise protocol specifies), write the block-0 keystream to block0 and,
  * when mlen > 0, encrypt m into c starting at block counter 1. block0 must
  * be at least 64 bytes: it receives the full ChaCha20 block, of which only
- * the first 32 bytes are the Poly1305 key. Leaves the state's block counter
+ * the first 32 bytes are the Poly1305 key. m and c may be NULL only when
+ * mlen is 0 (a block0-only call); a NULL m with a nonzero mlen fails with
+ * -1 rather than emitting bare keystream. Leaves the state's block counter
  * after the last block processed.
  */
 SODIUM_EXPORT
@@ -70,7 +72,11 @@ int crypto_stream_chacha20_ietf_session_block0_xor(
 
 /*
  * Continue the keystream from the state's current block counter (e.g. the
- * payload pass after a block0-only call above).
+ * payload pass after a block0-only call above). Only one continuation call
+ * per nonce is supported: a partial final block advances the counter to the
+ * next block, so chaining several calls is keystream-continuous only when
+ * every mlen is a multiple of 64. c and m must be non-NULL even when mlen
+ * is 0.
  */
 SODIUM_EXPORT
 int crypto_stream_chacha20_ietf_session_xor(
