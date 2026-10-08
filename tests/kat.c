@@ -68,9 +68,9 @@ static void check(int ok, const char *what)
     }
 }
 
-/* The ESP8266 paths keep the small-order blocklist as words (patch 21); upstream's
-   byte compare is the reference, over the table itself, its high-bit variants,
-   one-byte changes and random points */
+/* The ESP8266 paths keep the small-order blocklist as words (patch 21), checked
+   against upstream over the 7 encodings, their high-bit variants, one-byte changes
+   and random points */
 int ge25519_has_small_order(const unsigned char s[32]);
 
 static const unsigned char small_order_points[7][32] = {
@@ -88,25 +88,8 @@ static const unsigned char small_order_points[7][32] = {
       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f },
 };
 
-static int small_order_reference(const unsigned char s[32])
-{
-    unsigned char c[7] = { 0 };
-    unsigned int k = 0;
-    size_t i, j;
-
-    for (j = 0; j < 31; j++) {
-        for (i = 0; i < 7; i++) {
-            c[i] |= s[j] ^ small_order_points[i][j];
-        }
-    }
-    for (i = 0; i < 7; i++) {
-        c[i] |= (s[31] & 0x7f) ^ small_order_points[i][31];
-    }
-    for (i = 0; i < 7; i++) {
-        k |= (c[i] - 1);
-    }
-    return (int) ((k >> 8) & 1);
-}
+/* upstream's byte compare, built from the pristine tree by x25519_reference.c */
+int ref_ge25519_has_small_order(const unsigned char s[32]);
 
 static void test_ed25519_small_order(void)
 {
@@ -118,19 +101,19 @@ static void test_ed25519_small_order(void)
     for (i = 0; i < 7; i++) {
         memcpy(p, small_order_points[i], 32);
         rejected += ge25519_has_small_order(p);
-        mismatches += ge25519_has_small_order(p) != small_order_reference(p);
+        mismatches += ge25519_has_small_order(p) != ref_ge25519_has_small_order(p);
         p[31] |= 0x80;
         rejected += ge25519_has_small_order(p);
-        mismatches += ge25519_has_small_order(p) != small_order_reference(p);
+        mismatches += ge25519_has_small_order(p) != ref_ge25519_has_small_order(p);
         for (j = 0; j < 32; j++) {
             memcpy(p, small_order_points[i], 32);
             p[j] ^= 0x10;
-            mismatches += ge25519_has_small_order(p) != small_order_reference(p);
+            mismatches += ge25519_has_small_order(p) != ref_ge25519_has_small_order(p);
         }
     }
     for (i = 0; i < 10000; i++) {
         randombytes_buf(p, sizeof p);
-        mismatches += ge25519_has_small_order(p) != small_order_reference(p);
+        mismatches += ge25519_has_small_order(p) != ref_ge25519_has_small_order(p);
     }
     check(rejected == 14, "ed25519 small-order points and their high-bit variants rejected");
     check(mismatches == 0, "ed25519 small-order check matches upstream on 14 + 224 edits + 10000 random inputs");
