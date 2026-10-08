@@ -26,6 +26,8 @@
  *    compact transform (patch 14) must agree byte for byte with upstream's
  *    unrolled one, compiled beside it from the unpatched submodule, over
  *    every length up to four blocks and a sweep of streaming chunk sizes.
+ * 7. Ed25519 detached verification must accept the RFC 8032 test vector and
+ *    reject modified messages, signatures and non-canonical scalars.
  *
  * Build against the patched submodule (run pack.sh style patch application
  * first); see .github/workflows/ci.yml.
@@ -37,8 +39,10 @@
 
 #include <sodium/crypto_aead_chacha20poly1305.h>
 #include <sodium/crypto_hash_sha256.h>
+#include <sodium/crypto_hash_sha512.h>
 #include <sodium/crypto_onetimeauth_poly1305.h>
 #include <sodium/crypto_scalarmult_curve25519.h>
+#include <sodium/crypto_sign_ed25519.h>
 #include <sodium/crypto_stream_chacha20.h>
 #include <sodium/randombytes.h>
 
@@ -62,6 +66,53 @@ static void check(int ok, const char *what)
         printf("FAIL: %s\n", what);
         failures++;
     }
+}
+
+static void test_ed25519_verify(void)
+{
+    static const unsigned char public_key[32] = {
+        0x3d, 0x40, 0x17, 0xc3, 0xe8, 0x43, 0x89, 0x5a,
+        0x92, 0xb7, 0x0a, 0xa7, 0x4d, 0x1b, 0x7e, 0xbc,
+        0x9c, 0x98, 0x2c, 0xcf, 0x2e, 0xc4, 0x96, 0x8c,
+        0xc0, 0xcd, 0x55, 0xf1, 0x2a, 0xf4, 0x66, 0x0c
+    };
+    static const unsigned char signature[64] = {
+        0x92, 0xa0, 0x09, 0xa9, 0xf0, 0xd4, 0xca, 0xb8,
+        0x72, 0x0e, 0x82, 0x0b, 0x5f, 0x64, 0x25, 0x40,
+        0xa2, 0xb2, 0x7b, 0x54, 0x16, 0x50, 0x3f, 0x8f,
+        0xb3, 0x76, 0x22, 0x23, 0xeb, 0xdb, 0x69, 0xda,
+        0x08, 0x5a, 0xc1, 0xe4, 0x3e, 0x15, 0x99, 0x6e,
+        0x45, 0x8f, 0x36, 0x13, 0xd0, 0xf1, 0x1d, 0x8c,
+        0x38, 0x7b, 0x2e, 0xae, 0xb4, 0x30, 0x2a, 0xee,
+        0xb0, 0x0d, 0x29, 0x16, 0x12, 0xbb, 0x0c, 0x00
+    };
+    static const unsigned char group_order[32] = {
+        0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58,
+        0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10
+    };
+    unsigned char bad_signature[64];
+    unsigned char message = 0x72;
+
+    check(crypto_sign_ed25519_verify_detached(
+              signature, &message, 1, public_key) == 0,
+          "ed25519 RFC 8032 known answer");
+    message ^= 1;
+    check(crypto_sign_ed25519_verify_detached(
+              signature, &message, 1, public_key) != 0,
+          "ed25519 modified message rejection");
+    message ^= 1;
+    memcpy(bad_signature, signature, sizeof bad_signature);
+    bad_signature[0] ^= 1;
+    check(crypto_sign_ed25519_verify_detached(
+              bad_signature, &message, 1, public_key) != 0,
+          "ed25519 modified signature rejection");
+    memcpy(bad_signature, signature, sizeof bad_signature);
+    memcpy(bad_signature + 32, group_order, sizeof group_order);
+    check(crypto_sign_ed25519_verify_detached(
+              bad_signature, &message, 1, public_key) != 0,
+          "ed25519 non-canonical scalar rejection");
 }
 
 static const unsigned char kat_key[32] = {
@@ -578,8 +629,47 @@ static void test_sha256_differential(void)
     printf("sha256: %d differentials against upstream's unrolled transform\n", cases);
 }
 
+int ref_sha512(unsigned char *out, const unsigned char *in, unsigned long long inlen);
+void _crypto_sign_ed25519_ref10_hinit(crypto_hash_sha512_state *hs, int prehashed);
+
+static void test_sha512(void)
+{
+    unsigned char msg[1024], ours[64], theirs[64];
+    crypto_hash_sha512_state st;
+    size_t len, off, chunk;
+    char what[96];
+    static const unsigned char prefix[] = "SigEd25519 no Ed25519 collisions\1\0";
+
+    randombytes_buf(msg, sizeof msg);
+    /* Every padding position, including 111/112 and 127/128, over 8 blocks. */
+    for (len = 0; len <= sizeof msg; len++) {
+        crypto_hash_sha512(ours, msg, len);
+        ref_sha512(theirs, msg, len);
+        snprintf(what, sizeof what, "sha512 vs upstream len=%zu", len);
+        check(memcmp(ours, theirs, 64) == 0, what);
+    }
+    for (chunk = 1; chunk <= 129; chunk++) {
+        crypto_hash_sha512_init(&st);
+        for (off = 0; off < sizeof msg; off += chunk) {
+            crypto_hash_sha512_update(&st, msg + off,
+                off + chunk <= sizeof msg ? chunk : sizeof msg - off);
+        }
+        crypto_hash_sha512_final(&st, ours);
+        ref_sha512(theirs, msg, sizeof msg);
+        snprintf(what, sizeof what, "sha512 streamed vs upstream chunk=%zu", chunk);
+        check(memcmp(ours, theirs, 64) == 0, what);
+    }
+    _crypto_sign_ed25519_ref10_hinit(&st, 1);
+    crypto_hash_sha512_final(&st, ours);
+    ref_sha512(theirs, prefix, sizeof prefix - 1);
+    check(memcmp(ours, theirs, 64) == 0, "ed25519 prehashed domain prefix");
+    printf("sha512: 1154 differentials and prehashed domain prefix\n");
+}
+
 int main(void)
 {
+    test_ed25519_verify();
+    test_sha512();
     test_sha256();
     test_sha256_differential();
 

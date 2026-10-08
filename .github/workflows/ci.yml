@@ -50,7 +50,8 @@ jobs:
           # The ESP8266 code (patch 08 products, the m15 X25519 of patches 09
           # and 18 and port/x25519_m15.c, the Poly1305 and ChaCha20 paths of
           # patches 12 and 13, the SHA256 block decode of patch 14 and the
-          # SHA256 initial state copy of patch 16) is compiled in and
+          # SHA256 initial state copy of patch 16, and SHA512 word reads of
+          # patch 20 plus the Ed25519 domain prefix copy) is compiled in and
           # exercised on the host
           - name: esp8266 code paths
             cflags: "-DSODIUM_ESPHOME_TEST_ESP8266_PATHS"

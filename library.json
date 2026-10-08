@@ -41,6 +41,7 @@
             "+<crypto_hash/crypto_hash.c>",
             "+<crypto_hash/sha256/cp/hash_sha256_cp.c>",
             "+<crypto_hash/sha256/hash_sha256.c>",
+            "+<crypto_hash/sha512/cp/hash_sha512_cp.c>",
             "+<crypto_onetimeauth/crypto_onetimeauth.c>",
             "+<crypto_onetimeauth/poly1305/donna/poly1305_donna.c>",
             "+<crypto_onetimeauth/poly1305/onetimeauth_poly1305.c>",
@@ -48,6 +49,7 @@
             "+<crypto_scalarmult/curve25519/ref10/x25519_ref10.c>",
             "+<crypto_core/ed25519/ref10/ed25519_ref10.c>",
             "+<crypto_scalarmult/curve25519/scalarmult_curve25519.c>",
+            "+<crypto_sign/ed25519/ref10/open.c>",
             "+<crypto_stream/chacha20/ref/chacha20_ref.c>",
             "+<crypto_stream/chacha20/stream_chacha20.c>",
             "+<crypto_stream/crypto_stream.c>",
@@ -57,6 +59,7 @@
             "+<sodium/runtime.c>",
             "+<sodium/utils.c>",
             "+<../../../port/version.c>",
+            "+<../../../port/ed25519_ref10_hinit.c>",
             "+<../../../port/x25519_m15.c>"
         ]
     }
