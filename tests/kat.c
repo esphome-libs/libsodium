@@ -136,9 +136,14 @@ static void test_ed25519_small_order(void)
     check(mismatches == 0, "ed25519 small-order check matches upstream on 14 + 224 edits + 10000 random inputs");
 
     {
+        /* R = B, S = 1 against the identity key verifies for any message unless
+           the public-key small-order check rejects it (R itself is not small order) */
         static const unsigned char msg[1] = { 0 };
         unsigned char sig[64] = { 0 };
-        check(crypto_sign_ed25519_verify_detached(sig, msg, sizeof msg, small_order_points[2]) == -1,
+        memset(sig, 0x66, 32);
+        sig[0] = 0x58;
+        sig[32] = 1;
+        check(crypto_sign_ed25519_verify_detached(sig, msg, sizeof msg, small_order_points[1]) == -1,
               "ed25519 verify rejects a small-order public key");
     }
 }
