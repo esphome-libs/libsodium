@@ -68,6 +68,69 @@ static void check(int ok, const char *what)
     }
 }
 
+/* The ESP8266 paths keep the small-order blocklist as words (patch 21), checked
+   against upstream over the 7 encodings, their high-bit variants, one-byte changes
+   and random points */
+int ge25519_has_small_order(const unsigned char s[32]);
+
+static const unsigned char small_order_points[7][32] = {
+    { 0x00 },
+    { 0x01 },
+    { 0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98, 0xf0,
+      0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53, 0xfc, 0x05 },
+    { 0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67, 0x0f,
+      0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac, 0x03, 0x7a },
+    { 0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+      0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f },
+    { 0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+      0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f },
+    { 0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+      0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f },
+};
+
+/* upstream's byte compare, built from the pristine tree by x25519_reference.c */
+int ref_ge25519_has_small_order(const unsigned char s[32]);
+
+static void test_ed25519_small_order(void)
+{
+    unsigned char p[32];
+    int mismatches = 0;
+    int rejected = 0;
+    size_t i, j;
+
+    for (i = 0; i < 7; i++) {
+        memcpy(p, small_order_points[i], 32);
+        rejected += ge25519_has_small_order(p);
+        mismatches += ge25519_has_small_order(p) != ref_ge25519_has_small_order(p);
+        p[31] |= 0x80;
+        rejected += ge25519_has_small_order(p);
+        mismatches += ge25519_has_small_order(p) != ref_ge25519_has_small_order(p);
+        for (j = 0; j < 32; j++) {
+            memcpy(p, small_order_points[i], 32);
+            p[j] ^= 0x10;
+            mismatches += ge25519_has_small_order(p) != ref_ge25519_has_small_order(p);
+        }
+    }
+    for (i = 0; i < 10000; i++) {
+        randombytes_buf(p, sizeof p);
+        mismatches += ge25519_has_small_order(p) != ref_ge25519_has_small_order(p);
+    }
+    check(rejected == 14, "ed25519 small-order points and their high-bit variants rejected");
+    check(mismatches == 0, "ed25519 small-order check matches upstream on 14 + 224 edits + 10000 random inputs");
+
+    {
+        /* R = B, S = 1 against the identity key verifies for any message unless
+           the public-key small-order check rejects it (R itself is not small order) */
+        static const unsigned char msg[1] = { 0 };
+        unsigned char sig[64] = { 0 };
+        memset(sig, 0x66, 32);
+        sig[0] = 0x58;
+        sig[32] = 1;
+        check(crypto_sign_ed25519_verify_detached(sig, msg, sizeof msg, small_order_points[1]) == -1,
+              "ed25519 verify rejects a small-order public key");
+    }
+}
+
 static void test_ed25519_verify(void)
 {
     static const unsigned char public_key[32] = {
@@ -669,6 +732,7 @@ static void test_sha512(void)
 int main(void)
 {
     test_ed25519_verify();
+    test_ed25519_small_order();
     test_sha512();
     test_sha256();
     test_sha256_differential();
